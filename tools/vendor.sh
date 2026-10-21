@@ -26,6 +26,10 @@ cd "$REPO_ROOT"
 rsync -a --delete --exclude build_temp.c --exclude '*.o' \
       "$SOURCE/src/" "$REPO_ROOT/src/"
 
+# The build manifest travels with the compiler sources: CMake targets must
+# name every source file that lands in src/.
+cp "$SOURCE/CMakeLists.txt" "$REPO_ROOT/CMakeLists.txt"
+
 cat > "$REPO_ROOT/tools/VENDORED_FRONTEND.md" <<EOF
 # Vendored Front End
 
