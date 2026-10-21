@@ -1,8 +1,8 @@
 # Vendored Front End
 
-Vendor source: `hmx-lang` @ 9fd775cf2999358f5d6d51f2ff1b981315faf6b6
-Commit date:   2026-10-21T12:33:51+05:30
-Subject:       M18.2: add try/catch recoverable runtime faults
+Vendor source: `hmx-lang` @ bf055c77b9d44000cd2046b3b008a2a84d2897b4
+Commit date:   2026-10-21T14:39:00+05:30
+Subject:       P1a: lower statements to the ir::Node tree — codegen dispatches on IR
 
 Vendor through: `() /tmp/opencode/hmx-compiler/tools/vendor.sh <path>` (`tools/vendor.sh` in this repo)
 
