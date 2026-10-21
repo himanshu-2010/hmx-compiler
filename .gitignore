@@ -1,0 +1,18 @@
+# --- Build directories (incl. out-of-tree variants used by test runners) ---
+build/
+build-*/
+
+# --- Generated / transient compiler artifacts ---
+build_temp.c
+build_temp.s
+*.o
+
+# --- Built binary ---
+hmx
+
+# --- Editor / OS artifacts ---
+.directory
+.vscode/*
+.idea
+.DS_Store
+session-*.md

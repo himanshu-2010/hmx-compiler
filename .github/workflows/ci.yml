@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain prereqs
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake g++ flex bison
+      - name: Configure
+        run: cmake -S . -B build
+      - name: Build
+        run: cmake --build build -j
+      - name: Integration suite (68)
+        run: ./tests/run_integration.sh
+      - name: Negative suite (274)
+        run: ./tests/run_negative_tests.sh
+      - name: Stress suite (149)
+        run: ./tests/run_stress_tests.sh
+      - name: CLI suite (33)
+        run: ./tests/run_cli_tests.sh

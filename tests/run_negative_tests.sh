@@ -1,0 +1,2454 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+BIN="./build/hmx"
+TMPDIR="/tmp/hmx_neg_tests"
+mkdir -p "$TMPDIR"
+
+PASS=0
+FAIL=0
+
+test_error() {
+    local test_name="$1"
+    local code="$2"
+    local expected_pattern="$3"
+
+    local file="$TMPDIR/${test_name}.hmx"
+    printf '%s\n' "$code" > "$file"
+
+    local output
+    set +e
+    output=$("$BIN" run "$file" 2>&1)
+    local exit_code=$?
+    set -e
+
+    if [ $exit_code -ne 0 ] && echo "$output" | grep -qiE "$expected_pattern"; then
+        echo "PASS (Negative): $test_name"
+        PASS=$((PASS+1))
+    else
+        echo "FAIL (Negative): $test_name"
+        echo "   Expected pattern: $expected_pattern"
+        echo "   Got exit code $exit_code with output:"
+        echo "$output" | sed 's/^/   /'
+        FAIL=$((FAIL+1))
+    fi
+}
+
+# Like test_error, but the source file is written by the caller. Needed for
+# bytes a shell variable cannot carry: bash truncates a variable at a NUL, so a
+# raw-NUL source has to be created with printf directly.
+test_error_file() {
+    local test_name="$1"
+    local file="$2"
+    local expected_pattern="$3"
+
+    local output
+    set +e
+    output=$("$BIN" run "$file" 2>&1)
+    local exit_code=$?
+    set -e
+
+    if [ $exit_code -ne 0 ] && echo "$output" | grep -qiE "$expected_pattern"; then
+        echo "PASS (Negative): $test_name"
+        PASS=$((PASS+1))
+    else
+        echo "FAIL (Negative): $test_name"
+        echo "   Expected pattern: $expected_pattern"
+        echo "   Got exit code $exit_code with output:"
+        echo "$output" | sed 's/^/   /'
+        FAIL=$((FAIL+1))
+    fi
+}
+
+echo "=== Running Negative / Error Handling Tests ==="
+
+# Name, entry path (relative to temp dir), then repeated "path|content" pairs.
+# The entry is compiled and the combined output must match expected_pattern.
+test_error_module() {
+    local test_name="$1"
+    local entry="$2"
+    local expected_pattern="$3"
+    shift 3
+    local d="$TMPDIR/_mod/${test_name}"
+    rm -rf "$d"
+    while [ $# -gt 0 ]; do
+        local rel="$1"
+        local content="$2"
+        shift 2
+        mkdir -p "$d/$(dirname "$rel")"
+        printf '%s\n' "$content" > "$d/$rel"
+    done
+    local file="$d/$entry"
+    local output
+    set +e
+    output=$("$BIN" run "$file" 2>&1)
+    local exit_code=$?
+    set -e
+    if [ $exit_code -ne 0 ] && echo "$output" | grep -qiE "$expected_pattern"; then
+        echo "PASS (Negative): $test_name"
+        PASS=$((PASS+1))
+    else
+        echo "FAIL (Negative): $test_name"
+        echo "   Expected pattern: $expected_pattern"
+        echo "   Got exit code $exit_code with output:"
+        echo "$output" | sed 's/^/   /'
+        FAIL=$((FAIL+1))
+    fi
+}
+
+test_error "decl_type_mismatch" \
+    'fn main() {
+        let x: int = "text"
+    }' \
+    "type mismatch"
+
+test_error "duplicate_variable" \
+    'fn main() {
+        let x = 1
+        let x = 2
+    }' \
+    "duplicate declaration of variable"
+
+test_error "duplicate_function" \
+    'fn helper() {
+        print(1)
+    }
+    fn helper() {
+        print(2)
+    }
+    fn main() {
+        print(0)
+    }' \
+    "duplicate declaration of function"
+
+test_error "missing_return" \
+    'fn value(flag: bool) -> int {
+        if (flag) {
+            return 1
+        }
+    }
+    fn main() {
+        print(value(true))
+    }' \
+    "may exit without returning int"
+
+test_error "assign_type_mismatch" \
+    'fn main() {
+        let x = 5
+        x = "hello"
+    }' \
+    "type mismatch"
+
+test_error "binary_type_mismatch" \
+    'fn main() {
+        let x = 5 + "text"
+    }' \
+    "type mismatch"
+
+test_error "binary_bool_addition" \
+    'fn main() {
+        let x = true + false
+    }' \
+    "operator.*not defined"
+
+test_error "binary_mixed_int_decimal" \
+    'fn main() {
+        let x = 5 + 3.14
+    }' \
+    "type mismatch"
+
+test_error "text_ordering" \
+    'fn main() {
+        let b = "a" < "b"
+    }' \
+    "operator.*not defined for type text"
+
+test_error "logical_non_bool" \
+    'fn main() {
+        let b = 5 and 3
+    }' \
+    "requires bool"
+
+test_error "not_non_bool" \
+    'fn main() {
+        let b = not 5
+    }' \
+    "requires bool"
+
+test_error "loop_count_non_int" \
+    'fn main() {
+        loop("5") {
+            print(1)
+        }
+    }' \
+    "loop count must be int"
+
+test_error "while_cond_non_bool" \
+    'fn main() {
+        while (5) {
+            print(1)
+        }
+    }' \
+    "while condition must be bool"
+
+test_error "for_cond_non_bool" \
+    'fn main() {
+        for (let i = 0; 5; i++) {
+            print(i)
+        }
+    }' \
+    "for condition must be bool"
+
+test_error "for_update_text_increment" \
+    'fn main() {
+        for (let s = "x"; true; s++) {
+            print(s)
+        }
+    }' \
+    "requires int or decimal"
+
+test_error "do_while_cond_non_bool" \
+    'fn main() {
+        do {
+            print(1)
+        } while (5)
+    }' \
+    "do-while condition must be bool"
+
+test_error "semicolon_outside_for" \
+    'fn main() {
+        let x = 1;
+    }' \
+    "Parse error"
+
+test_error "if_cond_non_bool" \
+    'fn main() {
+        if (5) {
+            print(1)
+        }
+    }' \
+    "if condition must be bool"
+
+test_error "else_if_cond_non_bool" \
+    'fn main() {
+        if (true) {
+            print(1)
+        } else if (5) {
+            print(2)
+        }
+    }' \
+    "if condition must be bool"
+
+test_error "ternary_cond_non_bool" \
+    'fn main() {
+        let value = 1 ? 2 : 3
+    }' \
+    "ternary condition must be bool"
+
+test_error "ternary_branch_type_mismatch" \
+    'fn main() {
+        let value = true ? 1 : 2.0
+    }' \
+    "ternary branches must have the same type"
+
+test_error "invalid_cast" \
+    'fn main() {
+        let value = "text" as int
+    }' \
+    "casts are only supported between int and decimal"
+
+test_error "byte_out_of_range" \
+    'fn main() {
+        let value: byte = 256
+    }' \
+    "byte value must be between 0 and 255"
+
+test_error "char_arithmetic" \
+    'fn main() {
+        let value: char = '"'"'a'"'"'
+        value += 1
+    }' \
+    "requires int or decimal"
+
+test_error "switch_non_scalar" \
+    'fn main() {
+        switch ("value") {
+            case "value":
+                print(1)
+        }
+    }' \
+    "switch value must be int, byte, char, or enum"
+
+test_error "switch_duplicate_case" \
+    'fn main() {
+        switch (1) {
+            case 1:
+                print(1)
+            case 1:
+                print(2)
+        }
+    }' \
+    "duplicate switch case value"
+
+test_error "switch_multiple_default" \
+    'fn main() {
+        switch (1) {
+            default:
+                print(1)
+            default:
+                print(2)
+        }
+    }' \
+    "multiple default"
+
+test_error "substring_index_type" \
+    'fn main() {
+        print(substring("hello", 1.0, 2))
+    }' \
+    "expects int indexes"
+
+test_error "const_assignment" \
+    'fn main() {
+        const value = 1
+        value = 2
+    }' \
+    "cannot modify immutable variable"
+
+test_error "const_compound_assignment" \
+    'fn main() {
+        const value = 1
+        value += 2
+    }' \
+    "cannot modify immutable variable"
+
+test_error "const_increment" \
+    'fn main() {
+        const value = 1
+        value++
+    }' \
+    "cannot modify immutable variable"
+
+test_error "undef_var_read" \
+    'fn main() {
+        print(nope)
+    }' \
+    "undefined variable"
+
+test_error "undef_var_assign" \
+    'fn main() {
+        nope = 5
+    }' \
+    "undefined variable"
+
+test_error "compound_assign_type_mismatch" \
+    'fn main() {
+        let x = 5
+        x += "str"
+    }' \
+    "type mismatch"
+
+test_error "compound_assign_text" \
+    'fn main() {
+        let s = "hello"
+        s += 1
+    }' \
+    "requires int or decimal"
+
+test_error "incr_text" \
+    'fn main() {
+        let s = "hello"
+        s++
+    }' \
+    "requires int or decimal"
+
+test_error "string_concat_mixed" \
+    'fn main() {
+        let s = "hello" + 5
+    }' \
+    "type mismatch"
+
+test_error "string_subtraction" \
+    'fn main() {
+        let s = "hello" - "world"
+    }' \
+    "operator '-' not defined for type text"
+
+test_error "undef_fn_call" \
+    'fn main() {
+        no_such_func()
+    }' \
+    "undefined function"
+
+test_error "call_main" \
+    'fn foo() {
+        main()
+    }
+    fn main() {
+        foo()
+    }' \
+    "cannot call function 'main'"
+
+test_error "call_arg_count_mismatch" \
+    'fn add(a: int, b: int) -> int {
+        return a + b
+    }
+    fn main() {
+        add(1, 2, 3)
+    }' \
+    "expects 2 arguments, got 3"
+
+test_error "curry_prefix_arg_mismatch" \
+    'fn add(a: int, b: int) -> int {
+        return a + b
+    }
+    fn main() {
+        let inc = add("one")
+    }' \
+    "type mismatch: argument 1 of 'add' expects int, got text"
+
+test_error "curry_zero_args_value" \
+    'fn add(a: int, b: int) -> int {
+        return a + b
+    }
+    fn main() {
+        let f = add
+        f()
+    }' \
+    "expects 2 arguments, got 0"
+
+test_error "curry_too_many_remaining" \
+    'fn add(a: int, b: int, c: int) -> int {
+        return a + b + c
+    }
+    fn main() {
+        let f = add(1)
+        print(f(2, 3, 4))
+    }' \
+    "expects 2 arguments, got 3"
+
+test_error "curry_multi_partial_chain_type" \
+    'fn add(a: int, b: int, c: int) -> int {
+        return a + b + c
+    }
+    fn main() {
+        let f = add(1)
+        let g: fn(int) -> int = f
+    }' \
+    "declared as fn\(int\) -> int but initialized with fn\(int, int\) -> int"
+
+test_error "lambda_void_value_position" \
+    'fn main() {
+        let v = lambda() {
+            print(1)
+        }
+        print(v())
+    }' \
+    "returns nothing and cannot be used as a value"
+
+test_error "lambda_missing_return" \
+    'fn main() {
+        let bad = lambda(x: int) -> int {
+            print(x)
+        }
+    }' \
+    "lambda may exit without returning int"
+
+test_error "lambda_default_value_type" \
+    'fn main() {
+        let bad = lambda(x: int = "nope") -> int {
+            return x
+        }
+    }' \
+    "default value for parameter 'x' of lambda must be a literal of type int"
+
+test_error "call_arg_type_mismatch" \
+    'fn add(a: int, b: int) -> int {
+        return a + b
+    }
+    fn main() {
+        add(1, "two")
+    }' \
+    "type mismatch: argument 2"
+
+test_error "void_fn_as_value" \
+    'fn greet() {
+        print("hi")
+    }
+    fn main() {
+        let x = greet()
+    }' \
+    "returns nothing and cannot be used as a value"
+
+test_error "return_val_in_void_fn" \
+    'fn greet() {
+        return 42
+    }
+    fn main() {
+        greet()
+    }' \
+    "return value in void function"
+
+test_error "bare_return_in_typed_fn" \
+    'fn calc() -> int {
+        return
+    }
+    fn main() {
+        calc()
+    }' \
+    "bare return used"
+
+test_error "return_type_mismatch" \
+    'fn calc() -> int {
+        return "hello"
+    }
+    fn main() {
+        calc()
+    }' \
+    "type mismatch: return text but function returns int"
+
+test_error "return_outside_fn" \
+    'let x = 10
+    return 5' \
+    "return outside of function"
+
+test_error "syntax_unclosed_brace" \
+    'fn main() {
+        let x = 5' \
+    "Parse error"
+
+test_error "syntax_unclosed_paren" \
+    'fn main() {
+        print(5
+    }' \
+    "Parse error"
+
+test_error "unterminated_block_comment" \
+    '/* unclosed comment
+    fn main() {}' \
+    "unterminated block comment"
+
+test_error "array_element_type_mismatch" \
+    'fn main() {
+        let a: [int] = ["x", "y"]
+    }' \
+    "type mismatch: variable 'a' declared as array of int"
+
+test_error "array_mixed_element_types" \
+    'fn main() {
+        let a = [1, 2, "three"]
+    }' \
+    "array elements must all be the same type"
+
+test_error "array_untyped_empty" \
+    'fn main() {
+        let a = []
+        print(a[0])
+    }' \
+    "cannot infer array element type"
+
+test_error "array_nested_mismatch" \
+    'fn main() {
+        let a: [int] = [[1], [2]]
+    }' \
+    "declared as array of int but initialized with array of array of int"
+
+test_error "array_nested_element_mismatch" \
+    'fn main() {
+        let a: [[int]] = [[1], ["x"]]
+    }' \
+    "array elements must all be the same type"
+
+test_error "array_index_on_non_array" \
+    'fn main() {
+        let n = 5
+        print(n[0])
+    }' \
+    "is not an array"
+
+test_error "array_index_non_int" \
+    'fn main() {
+        let a: [int] = [1]
+        print(a["x"])
+    }' \
+    "array index must be int"
+
+test_error "array_assign_type_mismatch" \
+    'fn main() {
+        let a: [int] = [1]
+        a[0] = "x"
+    }' \
+    "cannot assign text to array element of int"
+
+test_error "array_assign_immutable" \
+    'fn main() {
+        const a: [int] = [1]
+        a[0] = 5
+    }' \
+    "cannot modify immutable variable"
+
+test_error "array_binary_op" \
+    'fn main() {
+        let a: [int] = [1]
+        print(a + a)
+    }' \
+    "not defined for type array"
+
+test_error "print_array" \
+    'fn main() {
+        let a: [int] = [1]
+        print(a)
+    }' \
+    "cannot print an array"
+
+test_error "array_param_element_mismatch" \
+    'fn f(a: [int]) {
+        print(1)
+    }
+    fn main() {
+        f(["x"])
+    }' \
+    "expects array of int, got array of text"
+
+test_error "array_builtin_push_non_array" \
+    'fn main() {
+        push(3, 1)
+    }' \
+    "builtin 'push' expects an array as argument 1"
+
+test_error "array_builtin_push_type_mismatch" \
+    'fn main() {
+        let a: [int] = [1]
+        push(a, "x")
+    }' \
+    "cannot push text to array of int"
+
+test_error "array_builtin_push_immutable" \
+    'fn main() {
+        const a: [int] = [1]
+        push(a, 2)
+    }' \
+    "cannot modify immutable array 'a'"
+
+test_error "array_builtin_push_as_value" \
+    'fn main() {
+        let a: [int] = [1]
+        let x = push(a, 2)
+    }' \
+    "returns nothing and cannot be used as a value"
+
+test_error "array_builtin_sort_bool" \
+    'fn main() {
+        let a: [bool] = [true, false]
+        sort(a)
+    }' \
+    "requires an array of int, decimal, byte, char, or text"
+
+test_error "array_builtin_slice_non_int" \
+    'fn main() {
+        let a: [int] = [1]
+        let b = slice(a, 0, "x")
+    }' \
+    "builtin 'slice' expects int indexes"
+
+test_error "array_builtin_concat_mismatch" \
+    'fn main() {
+        concat([1], ["x"])
+    }' \
+    "cannot concatenate array of text with array of int"
+
+test_error "array_builtin_index_of_type_mismatch" \
+    'fn main() {
+        index_of(["a", "b"], 2)
+    }' \
+    "index_of value of int does not match array of text"
+
+test_error "array_builtin_index_of_nested" \
+    'fn main() {
+        index_of([[1]], [1])
+    }' \
+    "requires an array of scalar or text elements"
+
+test_error "array_builtin_pop_on_const" \
+    'fn main() {
+        const a: [int] = [1]
+        pop(a)
+    }' \
+    "cannot modify immutable array 'a'"
+
+test_error "text_index_assign" \
+    'fn main() {
+        let s = "hi"
+        s[0] = '\''x'\''
+    }' \
+    "cannot assign to a character of a text value"
+
+test_error "text_index_non_int" \
+    'fn main() {
+        let s = "hi"
+        let c = s[1.5]
+    }' \
+    "text index must be int, got decimal"
+
+test_error "ord_expects_char_int" \
+    'fn main() {
+        let n = ord(5)
+    }' \
+    "builtin 'ord' expects char, got int"
+
+test_error "ord_expects_char_text" \
+    'fn main() {
+        let n = ord("a")
+    }' \
+    "builtin 'ord' expects char, got text"
+
+test_error "ord_arity" \
+    'fn main() {
+        let n = ord('\''a'\'', '\''b'\'')
+    }' \
+    "builtin 'ord' expects 1 arguments, got 2"
+
+test_error "chr_expects_int" \
+    'fn main() {
+        let c = chr("a")
+    }' \
+    "builtin 'chr' expects int, got text"
+
+test_error "split_expects_text1" \
+    'fn main() {
+        let p = split(3, ",")
+    }' \
+    "builtin 'split' expects text as argument 1, got int"
+
+test_error "split_expects_text2" \
+    'fn main() {
+        let p = split("a", 3)
+    }' \
+    "builtin 'split' expects text as argument 2, got int"
+
+test_error "split_arity" \
+    'fn main() {
+        let p = split("a")
+    }' \
+    "builtin 'split' expects 2 arguments, got 1"
+
+test_error "tuple_print" \
+    'fn f() -> (int, int) {
+        return 1, 2
+    }
+    fn main() {
+        print(f())
+    }' \
+    "cannot print a tuple"
+
+test_error "tuple_binary_op" \
+    'fn f() -> (int, int) {
+        return 1, 2
+    }
+    fn main() {
+        let t = f()
+        print(t + t)
+    }' \
+    "not defined for type tuple"
+
+test_error "tuple_ternary" \
+    'fn f(flag: bool) -> (int, int) {
+        if (flag) {
+            return 1, 2
+        }
+        return 3, 4
+    }
+    fn main() {
+        let t = true ? f(true) : f(false)
+    }' \
+    "ternary branches cannot be tuples"
+
+test_error "tuple_index_dynamic_hetero" \
+    'fn f() -> (int, text) {
+        return 1, "x"
+    }
+    fn main() {
+        let t = f()
+        let i = 0
+        print(t[i])
+    }' \
+    "tuple members must all be of the same type"
+
+test_error "tuple_index_dynamic_nested_hetero" \
+    'fn mk() -> (int, int) {
+        return 1, 2
+    }
+    fn f() -> ((int, int), text) {
+        return mk(), "x"
+    }
+    fn main() {
+        let t = f()
+        let i = 0
+        print(t[i])
+    }' \
+    "tuple members must all be of the same type"
+
+test_error "tuple_index_dynamic_non_int" \
+    'fn f() -> (int, int) {
+        return 1, 2
+    }
+    fn main() {
+        let t = f()
+        let s = "x"
+        print(t[s])
+    }' \
+    "tuple index must be int, got text"
+
+test_error "tuple_index_out_of_range" \
+    'fn f() -> (int, int) {
+        return 1, 2
+    }
+    fn main() {
+        let t = f()
+        print(t[2])
+    }' \
+    "tuple index 2 out of range"
+
+test_error "tuple_index_on_int" \
+    'fn main() {
+        let n = 5
+        print(n[0])
+    }' \
+    "is not an array"
+
+test_error "tuple_destruct_count_mismatch" \
+    'fn f() -> (int, int) {
+        return 1, 2
+    }
+    fn main() {
+        let (a, b, c) = f()
+    }' \
+    "cannot destructure tuple of 2 members into 3 variables"
+
+test_error "tuple_destruct_non_tuple" \
+    'fn main() {
+        let (a, b) = 5
+    }' \
+    "right side of destructuring must be a tuple, array, or text, got int"
+
+test_error "destruct_tuple_rest" \
+    'fn f() -> (int, int) {
+        return 1, 2
+    }
+    fn main() {
+        let (a, ...rest) = f()
+    }' \
+    "cannot use '...rest' when destructuring a tuple"
+
+test_error "destruct_array_unknown_elem" \
+    'fn main() {
+        let (a, b) = []
+    }' \
+    "cannot infer element type for this array destructuring"
+
+test_error "destruct_array_multiassign_mismatch" \
+    'fn main() {
+        let a = "x"
+        let b = "y"
+        (a, b) = [1, 2]
+    }' \
+    "cannot assign int to text"
+
+test_error "destruct_array_rest_target_mismatch" \
+    'fn main() {
+        let x = 1
+        let r = 5
+        (x, ...r) = [1, 2, 3]
+    }' \
+    "cannot assign array of int to int"
+
+test_error "destruct_array_immutable_target" \
+    'fn main() {
+        const c: int = 1
+        let a: int = 0
+        (c, a) = [5, 6]
+    }' \
+    "cannot modify immutable variable 'c'"
+
+test_error "destruct_text_multiassign_mismatch" \
+    'fn main() {
+        let x = 1
+        let y = 2
+        (x, y) = "ab"
+    }' \
+    "cannot assign char to int"
+
+test_error "destruct_text_rest_target_mismatch" \
+    'fn main() {
+        let a = '\''a'\''
+        let r: [int] = [1]
+        (a, ...r) = "hi there"
+    }' \
+    "cannot assign text to array of int"
+
+test_error "tuple_destruct_target_type_mismatch" \
+    'fn f() -> (int, text) {
+        return 1, "x"
+    }
+    fn main() {
+        let x = 5
+        let y = 6
+        (x, y) = f()
+    }' \
+    "type mismatch"
+
+test_error "tuple_destruct_undefined_target" \
+    'fn f() -> (int, int) {
+        return 1, 2
+    }
+    fn main() {
+        (a, b) = f()
+    }' \
+    "undefined variable"
+
+test_error "tuple_return_count_mismatch" \
+    'fn f() -> (int, int) {
+        return 1, 2, 3
+    }
+    fn main() {
+        print(0)
+    }' \
+    "returns 2 values but return statement provides 3"
+
+test_error "tuple_return_member_type_mismatch" \
+    'fn f() -> (int, int) {
+        return 1, "x"
+    }
+    fn main() {
+        print(0)
+    }' \
+    "return value 2 has type text"
+
+test_error "tuple_return_single_whole_scalar" \
+    'fn f() -> (int, int) {
+        return 5
+    }
+    fn main() {
+        print(0)
+    }' \
+    "type mismatch: return int but function returns"
+
+test_error "tuple_nested_pattern_on_char" \
+    'fn main() {
+        let s: text = "hi"
+        let (a, (b, c)) = s
+        print(a, b, c)
+    }' \
+    "cannot destructure a character into a nested pattern"
+
+test_error "tuple_nested_pattern_on_scalar_elem" \
+    'fn main() {
+        let a: [int] = [1, 2, 3]
+        let ((x, y), z) = a
+        print(x)
+    }' \
+    "cannot destructure a value of type int into a nested pattern"
+
+test_error "tuple_nested_count_mismatch" \
+    'fn mk3() -> (int, int, int) {
+        return 1, 2, 3
+    }
+    fn mk() -> ((int, int, int), int) {
+        return mk3(), 4
+    }
+    fn main() {
+        let ((a, b), c) = mk()
+        print(a)
+    }' \
+    "cannot destructure tuple of 3 members into 2 variables"
+
+test_error "tuple_nested_rest_in_group" \
+    'fn mk() -> (int, int) {
+        return 1, 2
+    }
+    fn f() -> ((int, int), int) {
+        return mk(), 3
+    }
+    fn main() {
+        let ((a, ...r), b) = f()
+        print(a)
+    }' \
+    "cannot use '...rest' when destructuring a tuple"
+
+test_error "destruct_rest_not_last_array" \
+    'fn main() {
+        let a: [int] = [1, 2, 3]
+        let (...r, x) = a
+        print(x)
+    }' \
+    "cannot use '...rest' before another destructuring target"
+
+test_error "destruct_rest_not_last_text" \
+    'fn main() {
+        let s = "hello"
+        let (...r, x) = s
+        print(x)
+    }' \
+    "cannot use '...rest' before another destructuring target"
+
+test_error "tuple_nested_multiassign_undefined" \
+    'fn mk_pair(x: int) -> (int, int) {
+        return x, x * 10
+    }
+    fn mk_nested() -> ((int, int), int) {
+        return mk_pair(1), 2
+    }
+    fn main() {
+        let one = 0
+        ((one, two), three) = mk_nested()
+        print(one)
+    }' \
+    "undefined variable 'two'"
+
+test_error "tuple_annotated_mismatch" \
+    'fn f() -> (int, text) {
+        return 1, "x"
+    }
+    fn main() {
+        let t: (int, int) = f()
+    }' \
+    "but initialized with"
+
+test_error "tuple_length" \
+    'fn f() -> (int, int) {
+        return 1, 2
+    }
+    fn main() {
+        let t = f()
+        print(length(t))
+    }' \
+    "builtin .length. expects text or array, got tuple"
+
+test_error "tuple_bare_return" \
+    'fn f() -> (int, int) {
+        return
+    }
+    fn main() {
+        print(0)
+    }' \
+    "bare return used"
+
+test_error "tuple_call_arg_shape_mismatch" \
+    'fn pair_txt() -> (int, text) {
+        return 1, "x"
+    }
+    fn g(t: (int, int)) -> int {
+        return t[0]
+    }
+    fn main() {
+        let p = pair_txt()
+        print(g(p))
+    }' \
+    "expects tuple \\(int, int\\), got tuple \\(int, text\\)"
+
+test_error "mod_on_decimal" \
+    'fn main() {
+        let x = 5.5 % 2.5
+        print(x)
+    }' \
+    "operator '%' not defined for type decimal"
+
+test_error "mod_on_text" \
+    'fn main() {
+        let x = "abc" % "def"
+        print(x)
+    }' \
+    "operator '%' not defined for type text"
+
+test_error "mod_type_mismatch" \
+    'fn main() {
+        let x = 5 % 2.5
+        print(x)
+    }' \
+    "type mismatch in binary expression"
+
+test_error "mod_eq_on_decimal" \
+    'fn main() {
+        let x = 5.5
+        x %= 2
+        print(x)
+    }' \
+    "operator '%=' requires int"
+
+test_error "unary_minus_on_text" \
+    'fn main() {
+        let x = -"abc"
+        print(x)
+    }' \
+    "operator '-' not defined for type text"
+
+test_error "break_outside_loop" \
+    'fn main() {
+        break
+    }' \
+    "break outside of a loop"
+
+test_error "continue_outside_loop" \
+    'fn main() {
+        continue
+    }' \
+    "continue outside of a loop"
+
+test_error "break_in_switch_no_loop" \
+    'fn main() {
+        loop (1) {
+            switch (1) {
+                case 1: break
+            }
+        }
+    }' \
+    "break inside a switch case requires an enclosing loop"
+
+test_error "continue_in_switch_no_loop" \
+    'fn main() {
+        loop (1) {
+            switch (1) {
+                case 1: continue
+            }
+        }
+    }' \
+    "continue inside a switch case requires an enclosing loop"
+
+test_error "foreach_on_int" \
+    'fn main() {
+        foreach (x in 5) {
+            print(x)
+        }
+    }' \
+    "foreach iterable must be an array or text, got int"
+
+test_error "foreach_on_tuple" \
+    'fn pair() -> (int, int) {
+        return 1, 2
+    }
+    fn main() {
+        foreach (x in pair()) {
+            print(x)
+        }
+    }' \
+    "foreach iterable must be an array or text, got tuple"
+
+test_error "foreach_var_out_of_scope" \
+    'fn main() {
+        let a = [1, 2]
+        foreach (x in a) {
+            print(x)
+        }
+        print(x)
+    }' \
+    "undefined variable"
+
+test_error "input_with_args" \
+    'fn main() {
+        print(input(5))
+    }' \
+    "builtin 'input' expects 0 arguments, got 1"
+
+test_error "tostr_on_array" \
+    'fn main() {
+        print(tostr([1, 2]))
+    }' \
+    "builtin 'tostr' expects int, decimal, bool, byte, char, or text"
+
+test_error "tostr_wrong_arity" \
+    'fn main() {
+        print(tostr())
+    }' \
+    "builtin 'tostr' expects 1 arguments, got 0"
+
+test_error "parse_int_on_int" \
+    'fn main() {
+        print(parse_int(42))
+    }' \
+    "builtin 'parse_int' expects text, got int"
+
+test_error "parse_decimal_on_bool" \
+    'fn main() {
+        print(parse_decimal(true))
+    }' \
+    "builtin 'parse_decimal' expects text, got bool"
+
+test_error "print_zero_args" \
+    'fn main() {
+        print()
+    }' \
+    "syntax error near"
+
+test_error "print_array_arg" \
+    'fn main() {
+        let a = [1, 2]
+        print(a, 5)
+    }' \
+    "cannot print an array"
+
+test_error "print_tuple_arg" \
+    'fn pair() -> (int, int) {
+        return 1, 2
+    }
+    fn main() {
+        print(pair())
+    }' \
+    "cannot print a tuple"
+
+test_error "nested_fn_assigns_captured" \
+    'fn main() {
+        let outer = 5
+        fn helper() {
+            outer = 7
+        }
+        helper()
+    }' \
+    "cannot assign to captured variable"
+
+test_error "closures_capture_not_in_scope" \
+    'fn other() {
+        let local = 5
+        fn g() -> int { return local }
+    }
+    fn main() {
+        print(g())
+    }' \
+    "captured variable 'local' is not in scope"
+
+test_error "closures_transitive_capture_not_in_scope" \
+    'fn holder() {
+        let secret = 42
+        fn maker() -> fn() -> int {
+            return lambda () -> int { return secret }
+        }
+    }
+    fn main() {
+        let f = maker()
+        print(f())
+    }' \
+    "captured variable 'secret' is not in scope"
+
+test_error "closures_forward_ref_value" \
+    'fn main() {
+        let f: fn(int) -> int = g
+        fn g(n: int) -> int { return n }
+    }' \
+    "must be declared before it is used as a value"
+
+test_error "closures_use_main_value" \
+    'fn apply(f: fn(int) -> int, x: int) -> int { return f(x) }
+    fn main() {
+        print(apply(main, 3))
+    }' \
+    "cannot use function 'main' as a value"
+
+test_error "closures_print_function" \
+    'fn twice(a: int) -> int { return a + a }
+    fn main() {
+        let f: fn(int) -> int = twice
+        print(f)
+    }' \
+    "cannot print a function"
+
+test_error "closures_ternary_function" \
+    'fn twice(a: int) -> int { return a + a }
+    fn main() {
+        let f: fn(int) -> int = twice
+        let t = true
+        print(t ? f : f)
+    }' \
+    "ternary branches cannot be functions"
+
+test_error "closures_arg_fn_mismatch" \
+    'fn twice(a: int) -> int { return a + a }
+    fn concat(a: int, b: int) -> int { return a + b }
+    fn choose(b: bool, f: fn(int) -> int, g: fn(int) -> int) -> int {
+        if (b) { return f(1) }
+        return g(1)
+    }
+    fn main() {
+        let f: fn(int) -> int = twice
+        let g: fn(int, int) -> int = concat
+        print(choose(true, f, g))
+    }' \
+    "argument 3 of 'choose' expects"
+
+test_error "closures_var_mismatch" \
+    'fn twice(a: int) -> int { return a + a }
+    fn concat(a: int, b: int) -> int { return a + b }
+    fn main() {
+        let f: fn(int, int) -> int = twice
+    }' \
+    "but initialized with"
+
+test_error "closures_assign_mismatch" \
+    'fn twice(a: int) -> int { return a + a }
+    fn concat(a: int, b: int) -> int { return a + b }
+    fn main() {
+        let f: fn(int) -> int = twice
+        f = concat
+    }' \
+    "cannot assign"
+
+test_error "closures_return_mismatch" \
+    'fn make() -> fn(int) -> int {
+        let g = 1
+        fn h(n: int) -> int { return n + g }
+        return 5
+    }
+    fn main() {
+        let f = make()
+        print(f(3))
+    }' \
+    "but function returns function"
+
+test_error "closures_return_fn_mismatch" \
+    'fn make() -> fn(int) -> int {
+        let g = 1
+        fn h(n: int, k: int) -> int { return n + k + g }
+        return h
+    }
+    fn main() {
+        let f = make()
+        print(f(3))
+    }' \
+    "but function returns fn"
+
+test_error "closures_call_arity" \
+    'fn apply(f: fn(int) -> int, x: int) -> int { return f(x) }
+    fn twice(a: int) -> int { return a + a }
+    fn main() {
+        let f: fn(int) -> int = twice
+        print(f(1, 2))
+    }' \
+    "expects 1 arguments, got 2"
+
+test_error "nested_fn_duplicate_global" \
+    'fn add() {
+        print(0)
+    }
+    fn main() {
+        fn add() {
+            print(0)
+        }
+    }' \
+    "duplicate declaration of function"
+
+test_error "nested_fn_duplicate_sibling" \
+    'fn main() {
+        fn first() {
+            print(0)
+        }
+        fn first() {
+            print(0)
+        }
+    }' \
+    "duplicate declaration of function"
+
+test_error "nested_fn_named_main" \
+    'fn main() {
+        fn main() {
+            print(0)
+        }
+    }' \
+    "duplicate declaration of function"
+
+test_error "nested_fn_break_outside_loop" \
+    'fn main() {
+        let x = 1
+        fn helper() {
+            break
+        }
+        print(x)
+    }' \
+    "break outside of a loop"
+
+test_error "nl_reject_call_outside_loop" \
+    'fn main() {
+        loop (3) {
+            fn bail() {
+                break
+            }
+        }
+        bail()
+    }' \
+    "its non-local break/continue target loop is not active here"
+
+test_error "nl_reject_call_from_other_fn" \
+    'fn owner() {
+        loop (3) {
+            fn bail() {
+                break
+            }
+            bail()
+        }
+    }
+    fn main() {
+        bail()
+    }' \
+    "its non-local break/continue target loop is not active here"
+
+test_error "nl_reject_forwarded_via_wrapper" \
+    'fn main() {
+        loop (3) {
+            fn bail() {
+                break
+            }
+            fn wrapper() {
+                bail()
+            }
+            wrapper()
+        }
+    }' \
+    "its non-local break/continue target loop is not active here"
+
+test_error "nl_reject_cross_loop_call" \
+    'fn main() {
+        loop (3) {
+            fn bail() {
+                break
+            }
+            fn swipe() {
+                continue
+            }
+        }
+        loop (3) {
+            bail()
+            swipe()
+        }
+    }' \
+    "its non-local break/continue target loop is not active here"
+
+test_error "nl_reject_token_as_value" \
+    'fn main() {
+        loop (3) {
+            fn bail() {
+                break
+            }
+            let f = bail
+        }
+    }' \
+    "cannot use function 'bail' as a value because it has a non-local break/continue target"
+
+test_error "nl_reject_token_as_arg" \
+    'fn apply(f: fn(int) -> int, x: int) -> int {
+        return f(x)
+    }
+    fn main() {
+        loop (3) {
+            fn bail(n: int) -> int {
+                break
+            }
+            apply(bail, 5)
+        }
+    }' \
+    "function 'bail'"
+
+test_error "nl_continue_outside_loop" \
+    'fn main() {
+        fn helper() {
+            continue
+        }
+        helper()
+    }' \
+    "continue outside of a loop"
+
+test_error "default_param_type_mismatch" \
+    'fn f(a: int = "x") {
+        print(a)
+    }' \
+    "default value for parameter 'a' of function 'f' must be a literal of type int"
+
+test_error "default_param_non_literal" \
+    'fn f(a: int = 1 + 2) {
+        print(a)
+    }' \
+    "default value for parameter 'a' of function 'f' must be a literal of type int"
+
+test_error "default_param_not_trailing" \
+    'fn f(a: int = 1, b: int) {
+        print(a)
+    }' \
+    "cannot follow a parameter with a default value"
+
+test_error "default_param_byte_range" \
+    'fn f(a: byte = 300) {
+        print(a)
+    }' \
+    "default value for byte parameter 'a' must be between 0 and 255"
+
+test_error "default_params_too_few_args" \
+    'fn f(a: int, b: int = 2) {
+        print(a)
+    }
+    fn main() {
+        f()
+    }' \
+    "expects at least 1 argument, got 0"
+
+test_error "variadic_not_last" \
+    'fn f(rest: ...int, a: int) {
+        print(a)
+    }' \
+    "must be the last parameter"
+
+test_error "variadic_duplicate" \
+    'fn f(x: ...int, y: ...int) {
+        print(x)
+    }' \
+    "more than one variadic parameter"
+
+test_error "variadic_collects_array" \
+    'fn f(rest: ...[int]) {
+        print(length(rest))
+    }' \
+    "must collect a scalar type"
+
+test_error "variadic_wrong_type" \
+    'fn f(a: int, rest: ...int) {
+        print(a)
+    }
+    fn main() {
+        f(1, "s")
+    }' \
+    "type mismatch: variadic argument 2 of 'f' expects int, got text"
+
+echo ""
+test_error_module "use_missing_file" "main.hmx" "cannot open module" \
+    "main.hmx" 'use "lib/nope.hmx"
+    fn main() {
+        print(0)
+    }'
+
+test_error_module "use_non_hmx" "main.hmx" "must be a .hmx file" \
+    "lib/math.txt" 'fn sum(a: int, b: int) -> int {
+        return a + b
+    }' \
+    "main.hmx" 'use "lib/math.txt"
+    fn main() {
+        print(0)
+    }'
+
+test_error_module "use_cycle" "main.hmx" "circular module dependency" \
+    "lib/c2.hmx" 'use "c1.hmx"
+    fn fc2() {
+        print(2)
+    }' \
+    "lib/c1.hmx" 'use "c2.hmx"
+    fn fc1() {
+        print(1)
+    }' \
+    "main.hmx" 'use "lib/c1.hmx"
+    fn main() {
+        fc1()
+    }'
+
+test_error_module "use_cycle_to_entry" "main.hmx" "circular module dependency" \
+    "lib/up.hmx" 'use "../main.hmx"
+    fn up() {
+        print(1)
+    }' \
+    "main.hmx" 'use "lib/up.hmx"
+    fn main() {
+        up()
+    }'
+
+test_error_module "use_not_at_top" "main.hmx" "Parse error" \
+    "lib/math.hmx" 'fn sum(a: int, b: int) -> int {
+        return a + b
+    }' \
+    "main.hmx" 'fn main() {
+        print(1)
+    }
+    use "lib/math.hmx"'
+
+test_error_module "use_dup_function" "main.hmx" "duplicate declaration of function" \
+    "lib/a.hmx" 'fn fa(x: int) -> int {
+        return x + 5
+    }' \
+    "lib/b.hmx" 'fn fa(x: int) -> int {
+        return x + 1
+    }' \
+    "main.hmx" 'use "lib/a.hmx"
+    use "lib/b.hmx"
+    fn main() {
+        print(fa(3))
+    }'
+
+test_error_module "use_module_type_error" "main.hmx" "Error \[.*err\.hmx:4\]" \
+    "lib/err.hmx" 'fn bad() {
+        let x = "a"
+        x = 5
+    }' \
+    "main.hmx" 'use "lib/err.hmx"
+    fn main() {
+        bad()
+    }'
+
+test_error_module "use_module_parse_error" "main.hmx" "parsing failed in module" \
+    "lib/syn.hmx" 'fn broken( {' \
+    "main.hmx" 'use "lib/syn.hmx"
+    fn main() {
+        print(0)
+    }'
+
+# M14: a type error in module top-level state cites the module file+line.
+test_error_module "module_top_state_type_err" "main.hmx" \
+    "Error \[.*lib[/\\]config\.hmx:[0-9]+\].*type mismatch" \
+    "lib/config.hmx" 'let LIMIT: text = 3
+    fn limit() -> int {
+        return 3
+    }' \
+    "main.hmx" 'use "lib/config.hmx"
+    fn main() {
+        print(limit())
+    }'
+
+# M14: module top-level state shares one namespace — a duplicate `let` across
+# two modules is rejected (second declaration cites its own module file).
+test_error_module "module_top_state_dup" "main.hmx" \
+    "Error \[.*lib[/\\]b\.hmx:[0-9]+\].*duplicate declaration of variable 'RATE'" \
+    "lib/a.hmx" 'let RATE = 1.0
+    fn a_rate() -> decimal {
+        return RATE
+    }' \
+    "lib/b.hmx" 'let RATE = 2.0
+    fn b_rate() -> decimal {
+        return RATE
+    }' \
+    "main.hmx" 'use "lib/a.hmx"
+    use "lib/b.hmx"
+    fn main() {
+        print(a_rate(), b_rate())
+    }'
+
+# M14: module init statements cannot read top-level state declared LATER in the
+# same module — initializers follow program order (a dependency's state IS
+# visible; that is the passing mod_top_state_dep/mods case).
+test_error_module "module_top_state_forward_ref" "main.hmx" \
+    "undefined variable 'SECOND'" \
+    "lib/order.hmx" 'let FIRST = SECOND + 1
+    let SECOND = 5
+    fn pick() -> int {
+        return SECOND
+    }' \
+    "main.hmx" 'use "lib/order.hmx"
+    fn main() {
+        print(pick())
+    }'
+
+test_error "use_reserved_keyword" \
+    'fn main() {
+        let use = 5
+        print(use)
+    }' \
+    "Parse error"
+
+# M16 made `struct`, `enum` and `alias` reserved, which broke an existing test
+# that used `alias` as a variable name — lock the reservation down.
+test_error "m16_reserved_alias_ident" \
+    'fn main() {
+        let alias = 5
+        print(alias)
+    }' \
+    "Parse error"
+
+test_error "m16_reserved_struct_ident" \
+    'fn main() {
+        let struct = 5
+        print(struct)
+    }' \
+    "Parse error"
+
+test_error "m16_reserved_enum_ident" \
+    'fn main() {
+        let enum = 5
+        print(enum)
+    }' \
+    "Parse error"
+
+test_error "tuple_literal_print" \
+    'fn main() {
+        print((1, 2))
+    }' \
+    "cannot print a tuple"
+
+test_error "tuple_literal_annotated_mismatch" \
+    'fn main() {
+        let t: (int, int) = (1, "x")
+    }' \
+    "declared as \(int, int\) but initialized with \(int, text\)"
+
+test_error "tuple_literal_arity_mismatch" \
+    'fn main() {
+        let t: (int, int) = (1, 2, 3)
+    }' \
+    "declared as \(int, int\) but initialized with \(int, int, int\)"
+
+test_error "tuple_literal_single_elem_not_tuple" \
+    'fn main() {
+        let t: (int, int) = (5)
+    }' \
+    "declared as tuple but initialized with int"
+
+test_error "tuple_literal_index_out_of_range" \
+    'fn main() {
+        let t = (1, 2)
+        print(t[2])
+    }' \
+    "tuple index 2 out of range"
+
+test_error "tuple_literal_binary_op" \
+    'fn main() {
+        let t = (1, 2) + (3, 4)
+    }' \
+    "not defined for type tuple"
+
+test_error "tuple_literal_ternary" \
+    'fn main() {
+        let c = true
+        let t = c ? (1, 2) : (3, 4)
+    }' \
+    "ternary branches cannot be tuples"
+
+test_error "tuple_literal_length" \
+    'fn main() {
+        let t = (1, 2)
+        print(length(t))
+    }' \
+    "builtin 'length' expects text or array, got tuple"
+
+test_error "int_literal_overflow" \
+    'fn main() {
+        print(2147483648)
+    }' \
+    "literal '2147483648' out of range"
+
+test_error "int_literal_overflow_big" \
+    'fn main() {
+        print(4000000000)
+    }' \
+    "literal '4000000000' out of range"
+
+test_error "byte_annotated_arith_mismatch" \
+    'fn main() {
+        let b: byte = 5
+        let c: byte = b + 1
+    }' \
+    "declared as byte but initialized with int"
+
+test_error "byte_text_mixed_arith" \
+    'fn main() {
+        let b: byte = 1
+        print(b + "x")
+    }' \
+    "type mismatch in binary expression: byte"
+
+test_error "byte_mod_decimal" \
+    'fn main() {
+        let b: byte = 5
+        print(b % 0.5)
+    }' \
+    "operator '%' not defined for type byte"
+
+# M16 type declarations (structs / enums / aliases): misuse of nominal types.
+test_error "m16_struct_nested_type_decl" \
+    'fn main() {
+        struct Inner {
+            x: int
+        }
+    }' \
+    "type declarations are only allowed at the top level"
+
+test_error "m16_alias_cycle" \
+    'alias A = B
+    alias B = A
+    fn main() {
+        let a: A = 1
+    }' \
+    "alias cycle detected involving type 'A'"
+
+test_error "m16_struct_value_self_containment" \
+    'struct Node {
+        next: Node
+    }
+    fn main() {
+        let n = Node(Node(0))
+    }' \
+    "cannot contain itself by value"
+
+# The by-value cycle family (ADR 0001). Direct self-containment is above; the
+# error must also catch a cycle spread across two or three structs, where no
+# single declaration refers to itself. Each expected string is the shared
+# "cannot contain itself by value" message, which names the type where the walk
+# closed the loop.
+test_error "m16_struct_value_mutual_containment" \
+    'struct A {
+        b: B
+    }
+    struct B {
+        a: A
+    }
+    fn main() {
+        let a: A = A(B(A(B(A(0)))))
+    }' \
+    "cannot contain itself by value"
+
+test_error "m16_struct_value_cycle_of_three" \
+    'struct A {
+        b: B
+    }
+    struct B {
+        c: C
+    }
+    struct C {
+        a: A
+    }
+    fn main() {
+        let a: A = A(B(C(0)))
+    }' \
+    "cannot contain itself by value"
+
+# A raw NUL byte is not valid source. Both cases used to corrupt memory: a NUL
+# as the first byte of a string literal made strlen() disagree with the match
+# length and malloc() abort, and a NUL in a char literal overflowed a 1-byte
+# strdup. Found by the front-end fuzzer (tests/fuzz/). A shell variable cannot
+# carry a NUL, so the sources are written with printf.
+printf 'fn main() {\n    print("\000b")\n}\n' > "$TMPDIR/nul_in_string.hmx"
+test_error_file "m16_nul_in_string" "$TMPDIR/nul_in_string.hmx" "NUL byte in source"
+
+printf "fn main() {\n    let c: char = '\000'\n}\n" > "$TMPDIR/nul_in_char.hmx"
+test_error_file "m16_nul_in_char" "$TMPDIR/nul_in_char.hmx" "NUL byte in source"
+
+printf 'fn main() {\n    \000\n}\n' > "$TMPDIR/nul_bare.hmx"
+test_error_file "m16_nul_bare" "$TMPDIR/nul_bare.hmx" "NUL byte in source"
+
+test_error "m16_type_dup_decl" \
+    'struct Point {
+        x: int
+    }
+    enum Point {
+        A
+    }' \
+    "duplicate declaration of type 'Point'"
+
+test_error "m16_type_as_value" \
+    'struct Point {
+        x: int
+    }
+    fn main() {
+        let p = Point
+    }' \
+    "cannot use type 'Point' as a value"
+
+test_error "m16_struct_ctor_arity" \
+    'struct Point {
+        x: int
+        y: int
+    }
+    fn main() {
+        let p = Point(1)
+    }' \
+    "struct 'Point' constructor expects 2 arguments"
+
+test_error "m16_struct_ctor_arg_type" \
+    'struct Point {
+        x: int
+        y: int
+    }
+    fn main() {
+        let p = Point("a", 2)
+    }' \
+    "type mismatch: field 'x' of struct 'Point' expects"
+
+test_error "m16_struct_ctor_enum" \
+    'enum Color {
+        Red
+    }
+    fn main() {
+        let c = Color()
+    }' \
+    "enum type 'Color' cannot be constructed"
+
+test_error "m16_struct_field_unknown" \
+    'struct Point {
+        x: int
+    }
+    fn main() {
+        let p = Point(1)
+        print(p.z)
+    }' \
+    "struct type 'Point' has no field 'z'"
+
+test_error "m16_enum_dup_variant" \
+    'enum Color {
+        Red
+        Green
+        Red
+    }
+    fn main() {
+        print(Color.Red)
+    }' \
+    "duplicate variant 'Red' in enum 'Color'"
+
+test_error "m16_enum_variant_unknown" \
+    'enum Color {
+        Red
+        Green
+    }
+    fn main() {
+        print(Color.Magenta)
+    }' \
+    "enum type 'Color' has no variant 'Magenta'"
+
+test_error "m16_enum_member_assign" \
+    'enum Color {
+        Red
+        Green
+    }
+    fn main() {
+        Color.Red = 5
+    }' \
+    "cannot assign to enum member 'Color.Red'"
+
+test_error "m16_member_access_non_struct" \
+    'fn main() {
+        let n = 5
+        print(n.x)
+    }' \
+    "cannot access member 'x' of int"
+
+test_error "m16_print_struct" \
+    'struct Point {
+        x: int
+    }
+    fn main() {
+        let p = Point(1)
+        print(p)
+    }' \
+    "cannot print a struct value"
+
+test_error "m16_struct_eq" \
+    'struct Point {
+        x: int
+    }
+    fn main() {
+        let a = Point(1)
+        let b = Point(1)
+        print(a == b)
+    }' \
+    "operator '==' not defined for type struct"
+
+test_error "m16_struct_arith" \
+    'struct Point {
+        x: int
+    }
+    fn main() {
+        let a = Point(1)
+        print(a + a)
+    }' \
+    "not defined for type struct"
+
+test_error "m16_enum_arith_enum" \
+    'enum Color {
+        Red
+        Green
+    }
+    fn main() {
+        print(Color.Red + Color.Green)
+    }' \
+    "not defined for enum types"
+
+test_error "m16_enum_rel" \
+    'enum Color {
+        Red
+        Green
+    }
+    fn main() {
+        print(Color.Red < Color.Green)
+    }' \
+    "not defined for enum types"
+
+test_error "m16_enum_eq_int" \
+    'enum Color {
+        Red
+        Green
+    }
+    fn main() {
+        print(Color.Red == 1)
+    }' \
+    "cannot compare an enum value with an int"
+
+test_error "m16_enum_cross_compare" \
+    'enum A {
+        a1
+    }
+    enum B {
+        b1
+    }
+    fn main() {
+        print(A.a1 == B.b1)
+    }' \
+    "cannot compare enum 'A' with 'B'"
+
+test_error "m16_enum_logic" \
+    'enum Color {
+        Red
+        Green
+    }
+    fn main() {
+        print(Color.Red and Color.Green)
+    }' \
+    "not defined for enum types"
+
+test_error "m16_enum_annotated_int" \
+    'enum Color {
+        Red
+        Green
+    }
+    fn main() {
+        let c: Color = 1
+    }' \
+    "declared as enum but initialized with int"
+
+test_error "m16_struct_annotated_other" \
+    'struct P {
+        x: int
+    }
+    struct Q {
+        y: int
+    }
+    fn main() {
+        let p: P = Q(1)
+    }' \
+    "declared as P but initialized with Q"
+
+test_error "m16_enum_var_int_assign" \
+    'enum Color {
+        Red
+        Green
+    }
+    fn main() {
+        let color: Color = Color.Red
+        let n = 1
+        color = n
+    }' \
+    "type mismatch"
+
+test_error "m16_switch_enum_dup_ordinal" \
+    'enum Color {
+        Red
+        Green
+    }
+    fn main() {
+        let c = Color.Red
+        switch (c) {
+            case Color.Green:
+                print(1)
+            case 1:
+                print(2)
+        }
+    }' \
+    "duplicate switch case value"
+
+test_error "m16_switch_enum_wrong_type" \
+    'enum Color {
+        Red
+        Green
+    }
+    enum Size {
+        Small
+        Big
+    }
+    fn main() {
+        let c = Color.Red
+        switch (c) {
+            case Size.Small:
+                print(1)
+        }
+    }' \
+    "switch case enum type must match switch value type"
+
+test_error "m16_switch_enum_nonliteral_case" \
+    'enum Color {
+        Red
+        Green
+    }
+    fn f() -> Color {
+        return Color.Green
+    }
+    fn main() {
+        let c = Color.Red
+        switch (c) {
+            case f():
+                print(1)
+        }
+    }' \
+    "switch cases must be enum members or int literals"
+
+test_error "m16_const_struct_write" \
+    'struct Point {
+        x: int
+    }
+    fn main() {
+        const p = Point(1)
+        p.x = 5
+    }' \
+    "cannot modify immutable variable 'p'"
+
+test_error "m16_return_struct_in_void" \
+    'struct Point {
+        x: int
+    }
+    fn normalize() {
+        return Point(1, 2)
+    }' \
+    "return value in void function"
+
+test_error "m16_member_assign_wrong_type" \
+    'struct Point {
+        x: int
+    }
+    fn main() {
+        let p = Point(1)
+        p.x = "hi"
+    }' \
+    "cannot assign text to field 'x'"
+
+test_error "m16_enum_field_compound" \
+    'enum Color {
+        Red
+        Green
+    }
+    struct Pixel {
+        color: Color
+    }
+    fn main() {
+        let px = Pixel(Color.Red)
+        px.color += 1
+    }' \
+    "compound assignment is not allowed on enum fields"
+
+test_error "m16_struct_length" \
+    'struct Point {
+        x: int
+    }
+    fn main() {
+        let p = Point(1)
+        print(length(p))
+    }' \
+    "builtin 'length' expects text or array, got struct"
+
+# M15 runtime error paths (reference-counted runtime diagnostics).
+test_error "runtime_split_empty_sep" \
+    'fn main() {
+        let p = split("a,b", "")
+        print(length(p))
+    }' \
+    "split separator must not be empty"
+
+test_error "runtime_slice_oob" \
+    'fn main() {
+        let a: [int] = [1, 2]
+        let b = slice(a, 1, 5)
+        print(length(b))
+    }' \
+    "slice out of bounds"
+
+test_error "runtime_parse_int_invalid" \
+    'fn main() {
+        print(parse_int("abc"))
+    }' \
+    "parse_int: invalid int 'abc'"
+
+test_error "runtime_parse_decimal_invalid" \
+    'fn main() {
+        print(parse_decimal("abc"))
+    }' \
+    "parse_decimal: invalid decimal 'abc'"
+
+# --- M17 generic functions -------------------------------------------------
+# Every call must pin down each type parameter from concrete argument types.
+
+test_error "generics_conflicting_inference" \
+    'fn choose[T](flag: bool, a: T, b: T) -> T {
+        return a
+    }
+    fn main() {
+        print(choose(true, 1, "x"))
+    }' \
+    "type parameter 'T' of generic function 'choose' inferred as both"
+
+test_error "generics_unbound_type_param" \
+    'fn make[T]() -> T {
+        return 1
+    }
+    fn main() {
+        let x = make()
+    }' \
+    "cannot infer type parameter 'T' for generic function 'make'"
+
+test_error "generics_arity_mismatch" \
+    'fn identity[T](x: T) -> T {
+        return x
+    }
+    fn main() {
+        print(identity(1, 2))
+    }' \
+    "generic function 'identity' expects 1 argument, got 2"
+
+test_error "generics_as_value" \
+    'fn identity[T](x: T) -> T {
+        return x
+    }
+    fn main() {
+        let f = identity
+        print(f(1))
+    }' \
+    "generic function 'identity' cannot be used as a value"
+
+test_error "generics_duplicate_type_param" \
+    'fn f[T, T](x: T) -> T {
+        return x
+    }
+    fn main() { print(1) }' \
+    "duplicate type parameter 'T' in function 'f'"
+
+test_error "generics_default_param" \
+    'fn f[T](x: T, y: int = 3) -> T {
+        return x
+    }
+    fn main() { print(1) }' \
+    "cannot have a default value"
+
+test_error "generics_nested_fn" \
+    'fn f[T](x: T) -> T {
+        fn inner(z: int) -> int { return z }
+        return x
+    }
+    fn main() { print(1) }' \
+    "generic function 'f' cannot declare nested functions"
+
+test_error "generics_name_collision" \
+    'fn f[T](x: T) -> T { return x }
+    fn f(x: int) -> int { return x }
+    fn main() { print(1) }' \
+    "function 'f' is already declared"
+
+test_error "generics_undefined_type" \
+    'fn f[T](x: Missing) -> T {
+        return 1
+    }
+    fn main() {
+        print(f(1))
+    }' \
+    "undefined type 'Missing'"
+
+# ── M17.3: generic structs ────────────────────────────────────────────────
+test_error "gstructs_duplicate_type_param" \
+    'struct B[T, T] { x: T }
+    fn main() { print(1) }' \
+    "duplicate type parameter 'T' in struct 'B'"
+
+test_error "gstructs_arity_too_many" \
+    'struct Box[T] { value: T }
+    fn main() {
+        let b: Box[int, text] = Box(1)
+        print(b.value)
+    }' \
+    "type 'Box' expects 1 type argument, got 2"
+
+test_error "gstructs_requires_type_arguments" \
+    'struct Box[T] { value: T }
+    fn main() {
+        let b: Box = Box(1)
+        print(b.value)
+    }' \
+    "generic type 'Box' requires type arguments"
+
+test_error "gstructs_args_on_non_generic" \
+    'struct Point { x: int }
+    fn main() {
+        let p: Point[int] = Point(1)
+        print(p.x)
+    }' \
+    "type 'Point' does not take type arguments"
+
+test_error "gstructs_uninferrable_ctor" \
+    'struct S[T] { n: int }
+    fn main() {
+        let s = S(5)
+        print(s.n)
+    }' \
+    "cannot infer type argument 'T' for generic type 'S'"
+
+test_error "gstructs_as_value" \
+    'struct Box[T] { value: T }
+    fn main() {
+        let f = Box
+        print(1)
+    }' \
+    "cannot use type 'Box' as a value"
+
+test_error "gstructs_self_by_value" \
+    'struct Node[T] {
+        value: T
+        next: Node[T]
+    }
+    fn get(n: Node[int]) -> int { return n.value }
+    fn main() { print(1) }' \
+    "struct type 'Node\[int\]' cannot contain itself by value"
+
+test_error "gstructs_ctor_arity" \
+    'struct Box[T] { value: T }
+    fn main() {
+        let b = Box(1, 2)
+        print(b.value)
+    }' \
+    "struct 'Box' constructor expects 1 arguments, got 2"
+
+test_error "gstructs_annotation_mismatch" \
+    'struct Box[T] { value: T }
+    fn main() {
+        let b: Box[int] = Box("hi")
+        print(b.value)
+    }' \
+    "variable 'b' declared as Box\[int\] but initialized with Box\[text\]"
+
+test_error "gstructs_undefined_type_argument" \
+    'struct Box[T] { value: T }
+    fn main() {
+        let b: Box[Missing] = Box(1)
+        print(b.value)
+    }' \
+    "undefined type 'Missing'"
+
+test_error "gstructs_param_mismatch" \
+    'struct Box[T] { value: T }
+    fn unbox[T](b: Box[T]) -> T { return b.value }
+    fn main() { print(unbox(5)) }' \
+    "argument for generic function 'unbox' expects Box\[T\], got int"
+
+test_error "gstructs_conflicting_inference" \
+    'struct Box[T] { value: T }
+    fn put[T](b: Box[T], x: T) -> T { return x }
+    fn main() { print(put(Box(1), "hi")) }' \
+    "type parameter 'T' of generic function 'put' inferred as both int and text"
+
+test_error "gstructs_ctor_field_conflict" \
+    'struct Dup[T] {
+        a: T
+        b: T
+    }
+    fn main() {
+        let d = Dup(1, "hi")
+        print(d.a)
+    }' \
+    "type parameter 'T' of generic type 'Dup' inferred as both int and text"
+
+test_error "gstructs_ctor_field_shape" \
+    'struct Wrap[T] { items: [T] }
+    fn main() {
+        let w = Wrap(5)
+        print(1)
+    }' \
+    "type mismatch: argument for generic type 'Wrap' expects array of T, got int"
+
+# M18: deferred blocks may not transfer control themselves. A `return` would
+# re-enter the defer teardown and recurse; `break`/`continue` would escape the
+# generated teardown block. Both are compile errors in native and web.
+test_error "defer_return_forbidden" \
+    'fn main() {
+        defer { return }
+    }' \
+    "return is not allowed inside a defer block"
+
+test_error "defer_break_forbidden" \
+    'fn main() {
+        loop (2) {
+            defer { break }
+        }
+    }' \
+    "break is not allowed inside a defer block"
+
+# A nested function can `break` out of an enclosing loop with longjmp, which
+# bypasses the target loop's generated teardown. Rather than silently skipping
+# those defers, the resolver rejects the combination; defers in the nested
+# breaker function itself are fine (they run before its longjmp).
+test_error "defer_in_nonlocal_loop" \
+    'fn main() {
+        loop (2) {
+            fn bail() { break }
+            defer { print("cleanup") }
+            bail()
+        }
+    }' \
+    "defer is not supported inside a loop that a nested function exits non-locally"
+
+# M18.2: `try` bodies may not introduce locals or `defer`, because a caught
+# fault unwinds by longjmp and would skip their teardown. `catch` is required.
+test_error "try_defer_forbidden" \
+    'fn main() {
+        try {
+            defer { print(1) }
+        } catch (e) {
+            print(e)
+        }
+    }' \
+    "defer is not supported inside a try block"
+
+test_error "try_local_forbidden" \
+    'fn main() {
+        try {
+            let x = 1
+        } catch (e) {
+            print(e)
+        }
+    }' \
+    "cannot declare a local inside a try block; declare it before the try"
+
+test_error "try_without_catch" \
+    'fn main() {
+        try {
+            print(1)
+        }
+    }' \
+    "syntax error"
+
+# Deep nesting: the guard at the top of TypeResolver::resolve rejects any program
+# whose AST is deeper than HMX_MAX_NESTING (200) *before* a recursive walk runs,
+# so an arbitrarily deep program is a clean diagnostic, never a C-stack overflow
+# (the bug the front-end fuzzer first hit). The message cites the deepest
+# statement's line. A unary `!` chain is the most compact unbounded-depth
+# program and it stays under bison's own stack limits, so the guard is what
+# fires; `test_error` keeps it inside the web parity gate
+# (web-playground/src/compiler/ast.ts astMaxDepth mirrors the native walk).
+# The three statements below tie at the deepest statement depth, so the cited
+# line is decided by child visit order: native pushes children forward, so
+# the LAST child is popped first and wins the tie. The web must mirror that
+# exactly, or it cites a different line. Keep them in lockstep.
+test_error "resolver_nesting_limit_not" \
+    'fn main() {
+        let x = !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!true
+        print(0)
+        print(1)
+    }' \
+    "nests too deeply \(maximum depth is 200\)"
+
+# Statement nesting reaches the same guard through different AST nodes (IfStmt
+# bodies), guarding the hand-written child list in gatherChildren/astMaxDepth.
+# It needs a generated source, so it is a native-only check: gen-data's
+# parseCalls only reads inline `test_error` literals, never `test_error_file`.
+{
+    printf 'fn main() {\n    '
+    for ((i = 0; i < 300; i++)); do printf 'if (true) { '; done
+    printf 'print(0)'
+    for ((i = 0; i < 300; i++)); do printf ' }'; done
+    printf '\n}\n'
+} > "$TMPDIR/nesting_if.hmx"
+test_error_file "resolver_nesting_limit_if" "$TMPDIR/nesting_if.hmx" \
+    "nests too deeply \(maximum depth is 200\)"
+
+echo "Negative Tests Passed: $PASS, Failed: $FAIL"
+rm -rf "$TMPDIR"
+[ $FAIL -eq 0 ]
