@@ -44,8 +44,15 @@ WASM, and freestanding (OS) targets.
 
 ## Consequences
 
-- Phase 1 (IR extraction) must keep generated C byte-identical on all 524
-  suite cases; it is the highest-risk refactor and is split into 3 sub-PRs.
+- Phase 1 (IR statement lowering) must keep generated C byte-identical on all
+  524 suite cases; done in P1a/P1b (both `hmx-lang` commits `bf055c7`, `b5f7729`),
+  which also moved every pre-pass walker onto the IR tree.
+- **Expression policy (P1b decision):** expressions are *not* copied into IR
+  nodes. The IR owns statement structure; expression subtrees are reached via
+  the annotated AST (`resolved_type`, ownership/liveness decisions already
+  live there). Copying them into a second tree would duplicate resolver state
+  with zero gain. Backends therefore walk IR statements + AST expression
+  subtrees. This is the intended steady-state shape, not a transitional gap.
 - Stdout/stderr buffering in the libc-free runtime must reproduce stdio's
   pipe behavior (fully buffered stdout, unbuffered stderr) or the exact-output
   test expectations shift.

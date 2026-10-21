@@ -1,8 +1,8 @@
 # Vendored Front End
 
-Vendor source: `hmx-lang` @ bf055c77b9d44000cd2046b3b008a2a84d2897b4
-Commit date:   2026-10-21T14:39:00+05:30
-Subject:       P1a: lower statements to the ir::Node tree — codegen dispatches on IR
+Vendor source: `hmx-lang` @ b5f7729338a4596f5798880ed8f550b74d31e0c8
+Commit date:   2026-10-21T14:59:18+05:30
+Subject:       P1b: pre-pass walkers consume the IR tree; single dispatch rule book
 
 Vendor through: `() /tmp/opencode/hmx-compiler/tools/vendor.sh <path>` (`tools/vendor.sh` in this repo)
 
