@@ -41,6 +41,16 @@ WASM, and freestanding (OS) targets.
    at HMX-internal call boundaries.
 8. **Identity.** The language name stays **HMX** (decided 2026-10-21);
    extensions `.hmx`, binary `hmx`, symbol prefixes unchanged.
+9. **Runtime is a first-class artifact (P2, 2026-10-21).** The ~800 lines of
+   `sd_*` helpers that used to be emitted inline into every `build_temp.c`
+   now live in `runtime/hxrt.c`, built once into `libhmxrt.a` by the
+   compiler's own build; generated programs include `runtime/hxrt.h` and the
+   driver links it (include dir + library path are baked into the `hmx`
+   binary at build time). Sanitizer builds compile `hxrt.c` *from source*
+   with the same `-fsanitize` flags so the refcount/UB gates keep observing
+   the runtime. `tools/vendor.sh` ships `runtime/` alongside `src/`. The
+   libc-free P5 runtime replaces this file wholesale, keeping the same
+   symbol surface (the `sd_*` prefix will become the HMX runtime ABI).
 
 ## Consequences
 

@@ -26,6 +26,12 @@ cd "$REPO_ROOT"
 rsync -a --delete --exclude build_temp.c --exclude '*.o' \
       "$SOURCE/src/" "$REPO_ROOT/src/"
 
+# P2: the shared runtime (runtime/hxrt.c + hxrt.h, built once into
+# libhmxrt.a) travels with the compiler too — the vendored CMakeLists
+# references it.
+rsync -a --delete \
+      "$SOURCE/runtime/" "$REPO_ROOT/runtime/"
+
 # The build manifest travels with the compiler sources: CMake targets must
 # name every source file that lands in src/.
 cp "$SOURCE/CMakeLists.txt" "$REPO_ROOT/CMakeLists.txt"
