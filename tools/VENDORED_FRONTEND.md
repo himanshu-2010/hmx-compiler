@@ -1,8 +1,8 @@
 # Vendored Front End
 
-Vendor source: `hmx-lang` @ b5f7729338a4596f5798880ed8f550b74d31e0c8
-Commit date:   2026-10-21T14:59:18+05:30
-Subject:       P1b: pre-pass walkers consume the IR tree; single dispatch rule book
+Vendor source: `hmx-lang` @ 53173c92b28039faab9f16c2d6f39b4c37135e84
+Commit date:   2026-10-22T16:45:26+05:30
+Subject:       P3: x86-64 asm text backend (-b asm) with differential test suite
 
 Vendor through: `() /tmp/opencode/hmx-compiler/tools/vendor.sh <path>` (`tools/vendor.sh` in this repo)
 

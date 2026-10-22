@@ -52,6 +52,59 @@ WASM, and freestanding (OS) targets.
    libc-free P5 runtime replaces this file wholesale, keeping the same
    symbol surface (the `sd_*` prefix will become the HMX runtime ABI).
 
+12. **P3 = Tier A shim, shipped behind a flag (2026-10-22).** The `-b asm`
+    backend emits AT&T-syntax x86-64 assembly text (consumable by the
+    system `as`+`cc`), assembled against `runtime/hxrt.c`. This is
+    scaffolding for the Tier B encoder (P5): it pioneered the scheduling,
+    framing and label invariants — not the artifact. Deliberately NOT the
+    long-term backend.
+13. **v1 expression/statement subset (2026-10-22).** Values:
+    int/bool/char/decimal/text. Expressions: literals, variables,
+    arithmetic (incl. compound assign, `++`/`--`), text literal + `+` +
+    `==`/`!=`, comparisons, `&&`/`||`/`!`, unary `-`, numeric casts,
+    conditional expr, user calls, text built-ins (`length`, `substring`,
+    `ord`, `chr`, `s[i]`). Statements: let/const, assignment, print,
+    if/else, while, do-while, for, `loop N`, break/continue, return (single
+    value), recursion. **Text parameters and text returns are supported.**
+    Arrays, tuples, structs, foreach, switch, closures/lambdas, defer/try
+    produce a precise `CompileError` (`asm backend v1: …`) — a rejected
+    build is the failure mode, never a silent miscompile.
+14. **Text ownership schedule (mirrors the C emitter).** Every text
+    expression leaves an *owned* `sd_str*` (+1) in `rax` and its consumer
+    drops it exactly once. Locals own their slot value; params are
+    borrowed. The caller drops a text argument's +1 after the call,
+    reading it from a per-call-site parking slot reserved during the scan
+    pass (one slot per text argument, keyed by the CallExpr node) — stack
+    pops are positional, so in-flight argument values must live in slots,
+    never in `rax` across a release call. Return values ride a ret-slot
+    (allocated in every frame): pre-zeroed at frame entry, the tail
+    reloads it *after* the text releases, since the release calls clobber
+    `rax`/`xmm0`.
+15. **Call frame protocol.** Each frame = one slot per declaration + 3
+    text homes + decimal scratch + ret slot; text local slots are zeroed
+    at frame entry and re-executed declarations release-before-store, so
+    a `let` inside a loop body is correct across iterations without
+    scope-end cleanup. `pending` counts in-flight stack spills for
+    16-byte alignment (`sub/add rsp,8` around odd-pending calls); printf
+    packs text args as (len, data) word pairs and receives `al` = xmm
+    arg count.
+16. **Label protocol.** Labels are file-unique via a backend-wide counter
+    (the `.L` prefix alone is not enough — GAS refuses duplicate
+    definitions of a name within one file, even for local symbols). Loop
+    labels: `break` → end label, `continue` → a dedicated
+    pre-increment/pre-update label so `loop`'s counter and `for`'s update
+    still run on continue.
+17. **Block scoping in a flat frame.** Declarations allocate one slot per
+    declaration (keyed by the declaration node, `decl_slots_`), and both
+    the scan and emit passes snapshot/restore the name map around block
+    scopes: sibling branches/loops may redeclare; `for`-headers scope to
+    header+body, exactly like the C path's scopes.
+18. **Differential gate.** `tests/run_backend_diff.sh` compares the asm
+    backend against the C backend (stdout byte-identical + equal exit
+    codes) over `tests/backend_diff/` fixtures, plus negative cases that
+    must error cleanly, plus an optional valgrind gate over the
+    asm-produced binaries (refcount schedule referee).
+
 ## Consequences
 
 - Phase 1 (IR statement lowering) must keep generated C byte-identical on all
