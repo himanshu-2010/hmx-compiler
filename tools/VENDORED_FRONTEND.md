@@ -1,8 +1,8 @@
 # Vendored Front End
 
-Vendor source: `hmx-lang` @ 7c690d18ef41ba98fc0feda1fd7e0b3b1dc64ef9
-Commit date:   2026-10-25T13:02:46+05:30
-Subject:       P4: backend default resolution — flag > HMX_BACKEND env > compiled default
+Vendor source: `hmx-lang` @ 4516aecd56e39801369a04645238323eb7433bd1
+Commit date:   2026-10-25T13:33:11+05:30
+Subject:       P5a fix: force the elfrt blob generation with a custom target
 
 Vendor through: `() /tmp/opencode/hmx-compiler/tools/vendor.sh <path>` (`tools/vendor.sh` in this repo)
 

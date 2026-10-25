@@ -14,7 +14,9 @@ Source of truth for the language front end (lexer/parser/AST/resolver) is
 ```
 src/            vendored front end + C emitter (lexer.l, parser.y, ast, type_resolver, codegen, main.cpp)
 src/ir/         (Phase 1) IR definition + AST→IR lowering
-src/backend/    (Phase 3+) x86_64.cpp, encoder.cpp, elf_writer.cpp, abi.cpp
+src/backend/    (P3+) backend.cpp (Tier A asm text), (P5a) encoder.cpp +
+                elf_writer.cpp + elf_backend.cpp (Tier B `-b elf`: machine-code
+                encoder, static ELF writer, freestanding runtime image)
 runtime/        (Phase 2) hxrt.c → libhxrt.a; (Phase 5) libc-free runtime/libc/
 tests/          4+bash runners + fixtures/*.hmx (run_packaging_tests.sh intentionally
                 NOT vendored — it drives hmx-lang's packaging manifests)

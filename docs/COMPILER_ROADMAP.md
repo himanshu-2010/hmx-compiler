@@ -13,6 +13,16 @@ green after every phase; valgrind + fuzz gates after codegen/runtime phases.
 | P3 | x86-64 assembly backend v1 + `run_backend_diff.sh` differential suite → tag `0.1.0-alpha` |
 | P4 | ✅ Flip default backend to asm; C backend kept behind a flag (-b c) |
 | P5 | Tier B: machine-code encoder + static ELF writer + libc-free runtime → tag `0.2.0-independence` |
+
+P5a landed 2026-10-25 (hmx-lang commit `4516aec`, vendored here): `-b elf` is
+the first Tier B path — a hand-written x86-64 byte encoder
+(`src/backend/encoder.*`), a static ET_EXEC ELF writer
+(`src/backend/elf_writer.*`), and a freestanding helper runtime
+(`runtime/elfrt/enc_rt.c`) embedded verbatim into the compiler binary and
+appended to every `-b elf` program. Word-only subset (int/bool/char), gated
+byte-for-byte against the C oracle by `tests/run_elf_diff.sh` (5 fixtures +
+9 negative cases). Decimal/text still route through the other backends and
+land on this path in P5b (mmap allocator + exact formatters).
 | C1 | System stdlib v1: fs / time / args / env / rng |
 | C2 | hashmap/hashset + JSON |
 | C3 | TCP + HTTP → **backend-ready** |

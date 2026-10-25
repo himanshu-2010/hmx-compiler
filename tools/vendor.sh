@@ -36,6 +36,14 @@ rsync -a --delete \
 # name every source file that lands in src/.
 cp "$SOURCE/CMakeLists.txt" "$REPO_ROOT/CMakeLists.txt"
 
+# Build-time tools referenced by CMake travel too; vendor.sh and its
+# VENDORED_FRONTEND.md record stay repo-local.
+mkdir -p "$REPO_ROOT/tools"
+rsync -a --delete \
+      --exclude vendor.sh \
+      --exclude VENDORED_FRONTEND.md \
+      "$SOURCE/tools/" "$REPO_ROOT/tools/"
+
 # P4: the test suites travel in lockstep (identical runner scripts + fixtures
 # in both repos), so every gate stays byte-for-byte comparable. The hmx-lang
 # packaging runner intentionally stays behind (it drives hmx-lang manifests).
