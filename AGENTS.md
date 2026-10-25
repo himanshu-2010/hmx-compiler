@@ -26,6 +26,10 @@ docs/COMPILER_ROADMAP.md  phase plan P0..C7 with gates
 
 All commands from the repo root:
 
+> **P4:** the built `hmx` here defaults to the asm backend (`-b c` reaches
+> the C emitter; the native runners pin `HMX_BACKEND=c` for the C-oracle
+> suites). In hmx-lang the compiled default is the C emitter.
+
 ```bash
 cmake -S . -B build
 cmake --build build            # builds build/hmx binary
@@ -50,7 +54,9 @@ Run all four main suites after any compiler change; there is no single
 
 - Language name stays **HMX**; `.hmx` extension; binary `hmx`.
 - Tier B end state: hand-written x86-64 encoder + static ELF writer + libc-free
-  runtime. Tier A (asm text + system linker) is the Phase 3 shim.
+  runtime. Tier A (asm text + system linker) is the Phase 3 shim; **P4 made it
+  this repo's compiled default** (hmx-lang keeps the C default until asm
+  reaches feature parity).
 - The C emitter is permanent (sanitizer host + differential oracle backend).
 - System V AMD64 ABI; aggregates pass by pointer at HMX-internal boundaries.
 - x86-64 Linux first, macOS second; aarch64 and Windows later phases.

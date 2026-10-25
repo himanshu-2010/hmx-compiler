@@ -36,6 +36,13 @@ rsync -a --delete \
 # name every source file that lands in src/.
 cp "$SOURCE/CMakeLists.txt" "$REPO_ROOT/CMakeLists.txt"
 
+# P4: the test suites travel in lockstep (identical runner scripts + fixtures
+# in both repos), so every gate stays byte-for-byte comparable. The hmx-lang
+# packaging runner intentionally stays behind (it drives hmx-lang manifests).
+rsync -a --delete \
+      --exclude run_packaging_tests.sh \
+      "$SOURCE/tests/" "$REPO_ROOT/tests/"
+
 cat > "$REPO_ROOT/tools/VENDORED_FRONTEND.md" <<EOF
 # Vendored Front End
 

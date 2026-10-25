@@ -1,8 +1,8 @@
 # Vendored Front End
 
-Vendor source: `hmx-lang` @ 53173c92b28039faab9f16c2d6f39b4c37135e84
-Commit date:   2026-10-22T16:45:26+05:30
-Subject:       P3: x86-64 asm text backend (-b asm) with differential test suite
+Vendor source: `hmx-lang` @ 7c690d18ef41ba98fc0feda1fd7e0b3b1dc64ef9
+Commit date:   2026-10-25T13:02:46+05:30
+Subject:       P4: backend default resolution — flag > HMX_BACKEND env > compiled default
 
 Vendor through: `() /tmp/opencode/hmx-compiler/tools/vendor.sh <path>` (`tools/vendor.sh` in this repo)
 
