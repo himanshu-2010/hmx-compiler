@@ -45,13 +45,16 @@ add_custom_command(
     OUTPUT ${ELFRT_BLOB}
     COMMAND ${ELFRT_CC} -c -O2 -ffreestanding -fno-builtin -fno-stack-protector
             -fno-asynchronous-unwind-tables -fno-plt -fno-ident
+            -fno-tree-loop-distribute-patterns
             -fcf-protection=none -o ${ELFRT_OBJ}
             ${CMAKE_SOURCE_DIR}/runtime/elfrt/enc_rt.c
     COMMAND ${CMAKE_LINKER} -nostdlib -Ttext=0 -o ${ELFRT_ELF} ${ELFRT_OBJ}
     COMMAND ${CMAKE_OBJCOPY} -O binary ${ELFRT_ELF} ${ELFRT_BIN}
     COMMAND sh -c "nm --defined-only -n ${ELFRT_ELF} > ${ELFRT_SYMS}"
     COMMAND elfrtgen ${ELFRT_BIN} ${ELFRT_SYMS} ${ELFRT_BLOB}
-            _hmx_w_char _hmx_w_i64
+            _hmx_w_char _hmx_w_i64 _hmx_w_f64 _hmx_w_text _hmx_panic_chr
+            sd_make_str sd_retain_str sd_release_str sd_concat sd_str_equals
+            sd_str_cmp sd_str_view sd_check_index
     DEPENDS elfrtgen ${ELFRT_CC}
             ${CMAKE_SOURCE_DIR}/runtime/elfrt/enc_rt.c
     COMMENT "elfrt: embedding freestanding runtime image into the compiler"
@@ -91,14 +94,21 @@ target_compile_options(hmx PRIVATE -Wall -Wextra -Wpedantic)
 
 target_compile_definitions(hmx PRIVATE HMX_VERSION="${PROJECT_VERSION}")
 
-# ── Default backend (P4) ─────────────────────────────────────
+# ── Default backend (P4, P5c) ───────────────────────────────
 # The direct-backend repo (hmx-compiler, marked by its roadmap doc) flips the
-# default backend to the asm Tier A shim via HMX_DEFAULT_BACKEND=asm;
-# hmx-lang keeps the full-language C emitter as its default until the asm
-# backend reaches feature parity. The source stays identical in both repos —
-# vendoring never changes this branch's outcome per repo.
+# default backend to a reduced-feature tier: the asm Tier A shim per P4, and
+# the elf Tier B machine-code path per P5c ("compiled-default: elf" in its
+# roadmap). hmx-lang keeps the full-language C emitter as its default. The
+# source stays identical in both repos — the vendored CMakeLists keys the
+# flip on the vendored repo's roadmap CONTENT, so future vendors keep the
+# source byte-identical here.
 if(EXISTS "${CMAKE_SOURCE_DIR}/docs/COMPILER_ROADMAP.md")
-    target_compile_definitions(hmx PRIVATE HMX_DEFAULT_BACKEND="asm")
+    set(_default_backend "asm")
+    file(READ "${CMAKE_SOURCE_DIR}/docs/COMPILER_ROADMAP.md" _roadmap_content)
+    if(_roadmap_content MATCHES "compiled-default: elf")
+        set(_default_backend "elf")
+    endif()
+    target_compile_definitions(hmx PRIVATE HMX_DEFAULT_BACKEND="${_default_backend}")
 endif()
 
 # ── Optional front-end fuzz target (Clang libFuzzer) ────────

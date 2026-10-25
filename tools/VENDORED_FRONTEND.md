@@ -1,8 +1,8 @@
 # Vendored Front End
 
-Vendor source: `hmx-lang` @ 4516aecd56e39801369a04645238323eb7433bd1
-Commit date:   2026-10-25T13:33:11+05:30
-Subject:       P5a fix: force the elfrt blob generation with a custom target
+Vendor source: `hmx-lang` @ 40b8c96aa8d71663b8031e7b2a97ee4ab8279914
+Commit date:   2026-10-25T15:05:34+05:30
+Subject:       P5c groundwork: default-backend flip keys on the vendored roadmap content
 
 Vendor through: `() /tmp/opencode/hmx-compiler/tools/vendor.sh <path>` (`tools/vendor.sh` in this repo)
 

@@ -7,7 +7,10 @@ machine code directly. Today it ships the proven C-transpiler path
 - **P1–P2** — IR extraction + runtime library (`libhxrt.a`)
 - **P3–P4** — x86-64 assembly backend, then default → tag `0.1.0-alpha`
 - **P5** — hand-written encoder + static ELF writer + libc-free runtime
-  (zero external toolchain) → tag `0.2.0-independence`
+  (zero external toolchain); **the compiled default is now `-b elf`**: a
+  statically-linked `hmx` compiles and runs plain HMX programs with no C
+  compiler, assembler, linker or libc on the target machine
+  → tag `0.2.0-independence`
 
 Full phase plan with gates: [`docs/COMPILER_ROADMAP.md`](docs/COMPILER_ROADMAP.md).
 Decisions: [`docs/adr/0004-direct-backend.md`](docs/adr/0004-direct-backend.md).
